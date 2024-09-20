@@ -1,0 +1,147 @@
+;; Alexandre Schumacher Fermino Rezende
+;; 00578936
+ORG HC5
+
+endanc:	db
+anc1:	db 1
+anc2:	db 2
+anc4:	db 4
+anc8:	db 8
+anc16:	db 16
+anc32:	db 32
+anc64:	db 64
+anc128:	db 128
+cont:	db 8
+var:	db
+TROCAS:	db
+XSUM:	db
+VCHAR:	db
+VBITS:	db
+
+ORG H00
+
+	LDR A, #8
+	STR A, cont
+
+	LDR A, #198
+	STR A, endanc
+
+	LDR A, #0
+	STR A, TROCAS
+	STR A, XSUM
+
+	LDR A, VCHAR
+	STR A, var
+
+	LDR B, VBITS,I
+
+	JSR func1
+;; transformação de caracteres
+
+	JSR func2
+;; calculo de CheckSum
+
+	HLT
+
+func1:	NOP
+loop1:	LDR A, VCHAR,I
+	JZ func1,I
+;; if (VCHAR[n]=0)
+;;	fim da string
+
+	LDR A, VCHAR,I
+	sub A, #65
+	JN adc
+;; if (VCHAR[n] < 65)
+;;	passar para o próximo caractere
+
+	LDR A, VCHAR,I
+	sub A #97
+	JN mai
+	JMP min
+;; if (VCHAR[n] - 97 < 0)
+;;	caractere maiúsculo, verificar BIT (mai)
+	
+mai:	LDR B, VBITS,I
+	AND B, endanc,I
+	JZ summai
+	JMP adc
+;; if (VBITS[n] = 0)
+;;	tornar VCHAR[n] minusculo (summai)
+	
+min:	LDR B, VBITS,I
+	AND B, endanc,I
+	JZ adc
+	JMP summin
+;; if (VBITS[n] = 0)
+;;	manter VCHAR[n] inalterado
+
+summai:	LDR A, VCHAR,I
+	add A, #32
+	STR A, VCHAR,I
+	LDR A, TROCAS
+	add A, #1
+	STR A, TROCAS
+	JMP adc
+;; tornar caractere maiúsculo e TROCAS++
+
+summin:	LDR A, VCHAR,I
+	sub A, #32
+	STR A, VCHAR,I
+	LDR A, TROCAS
+	add A, #1
+	STR A, TROCAS
+	JMP adc
+;; tornar caractere minúsculo e TROCAS++
+
+adc:	LDR A, VCHAR
+	add A, #1
+	STR A, VCHAR
+
+	LDR B, endanc
+	add B, #1
+	STR B, endanc
+	LDR B, cont
+	sub B, #1
+	STR B, cont
+	LDR B, cont
+	JZ sum_c
+
+;; atualizar endereço para o próximo caractere, a máscara para VBITS
+;; e o contador. Se o contador zerar, pular para próximo byte de VBITS
+
+	JMP loop1
+
+sum_c:	LDR B, VBITS
+	add B, #1
+	STR B, VBITS
+	LDR B, #4
+	STR B, cont
+	LDR B, #196
+	STR B, endanc
+	JMP loop1
+
+;; ir para próximo byte de VBITS
+;; resetar o contador e as máscaras
+
+func2:	NOP
+	LDR A, var,I
+	JZ fhlt
+	STR A, XSUM
+	LDR A, var
+	add A, #1
+	STR A, var
+;; colocar o primeiro caractere em XSUM
+
+loop2:	LDR A, var,I
+	JZ fhlt
+	add A, XSUM
+	STR A, XSUM
+	LDR A, var
+	add A, #1
+	STR A, var
+	JMP loop2
+;; adicionar o caractere seguinte ao primeiro e inserir em XSUM
+;; repetir até o fim da string
+
+fhlt:	JMP func2,I
