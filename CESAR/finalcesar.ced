@@ -1,0 +1,452 @@
+; Alexandre Schumacher Fermino Rezende
+; 00578936
+
+; ==============================================================
+
+	org	hFF80
+STACK:	daw		[31]
+IVET:	dw		0
+
+	dab		[23]
+TIMDT:	db		250		
+INTS:	db		0		
+INTE:	db		0		
+TECST:	db		0		
+TECDT:	db		0	
+VISOR:	dab		[36]
+
+; ==============================================================
+	
+	org	0
+tecla:	db	0
+
+horas:	dw	0
+min:	dw	0
+seg:	dw	0
+
+flag:	db	0		; flag para cursor piscante
+flagf:	db	0		; flag para finalizar funcoes
+
+CR:	EQU	h0D
+LF:	EQU	h0A
+CTRLF:	EQU	h06
+BS:	EQU	h08
+
+; ==============================================================
+; Inicializacao do programa principal
+
+	org	h30
+
+	mov	#STACK, r6
+
+	jsr	r7, limpavis	; limpar o visor
+	jsr	r7, inireg	; zerar registradores
+
+	mov	#relogio, h7F00
+	mov	#string, h7F02
+	jmp	h8000
+
+; ==============================================================
+; Chamada das funcoes:
+	org	h8000
+
+	jsr	r7, relogio
+
+	jsr	r7, string
+
+	hlt
+
+; ==============================================================
+
+	org	hA0
+; Inicializacao do relogio:
+relogio:
+
+	clr	INTS
+	mov	#250, TIMDT
+	mov	#isrrel, IVET
+	mov	#h83, INTE
+	mov	#-1, Tecla
+	clr	flagf
+
+	jsr	r7, limpavis	; limpar o visor
+	jsr	r7, inireg	; zerar registradores
+
+	mov	#VISOR, r0	; registrador para rastrear visor
+	mov	#4, r5		; registrador para contagem dos segundos
+	
+; ==============================================================
+; Relogio: main
+; Insercao do relogio no visor
+
+loop_rel:	
+		mov	horas, r2
+		mov	#VISOR, r1
+		jsr	r7, instim
+
+		inc	r1
+		mov	#':', (r1)
+		
+		mov	min, r2
+		inc	r1
+		jsr	r7, instim
+
+		inc	r1
+		mov	#':', (r1)
+
+		mov	seg, r2
+		inc	r1
+		jsr	r7, instim
+
+		cmp	tecla, #CTRLF		;| verifica se deve encerrar a funcao
+		bne	pulaloop1		;|
+		jmp	fimfuncao		;|
+
+pulaloop1:	jsr	r7, rconferetecla	; conferir qual tecla foi inserida
+
+
+		br	loop_rel
+
+
+; ==============================================================
+; Verificacao da dezenas do relogio
+
+instim:		clr	r3
+
+; 	- verifica se chegou na dezena do numero
+; 	- se sim, incrementar dezena
+; 	- caso contrario, deixar inalterado
+
+looptim1:
+		cmp	r2, #10
+		blt	looptim2
+		sub	#10, r2
+		inc	r3
+		br	looptim1
+
+; 	- converte o valor do numero para seu valor em ASCII
+; 	- os insere na posicao do visor
+
+looptim2:
+		add	#'0', r3
+		add	#'0', r2
+		mov	r3, (r1)
+		inc	r1
+		mov	r2, (r1)
+		rts	r7
+
+
+; ==============================================================
+; Rotina de tratamento de interruopcoes do relogio:
+
+;	- movar TECDT para <tecla>
+;	- contagem do loop dos segundos
+isrrel:
+		mov	r1, -(r6)
+		mov	r2, -(r6)
+		mov	r3, -(r6)
+		mov	r4, -(r6)
+
+rtestetim:
+		mov	INTS, r1
+		and	#1, r1
+		beq	rtestetec
+		jsr	r7, timertim	; se tiver interrupcao de tempo, tratar
+
+rtestetec:
+		mov	INTS, r1
+		and	#2, r1
+		beq	fimisrtim
+		jsr	r7, timertec	; se for interrupcao do teclado, tratar
+		jmp	fimisrtim
+
+
+; ==============================================================
+; Verificacao dos segundos:
+
+timertim:		
+		sob	r5, voltatim
+		mov	#4, r5		; se passar 1 seg (4x 250ms), incrementar segundos e reiniciar contagem
+
+		inc	seg
+		cmp	seg,#60
+		blt	voltatim
+		clr	seg
+
+		inc	min
+		cmp	min,#60
+		blt	voltatim
+		clr	min
+
+		inc	horas
+		cmp	horas,#24
+		blt	voltatim
+		clr	horas
+
+; Ajusta o status do timer e retorna a funcao
+voltatim:
+		and	#hFFFE, INTS
+		rts	r7		
+
+; ==============================================================
+; Desempilha registradores e retorna rotina de tratamento
+
+fimisrtim:		
+		mov	(r6)+, r4
+		mov	(r6)+, r3
+		mov	(r6)+, r2
+		mov	(r6)+, r1
+
+		rti
+
+; ==============================================================
+; Insere TECDT em <tecla> e retorna a funcao
+
+timertec:
+		mov	TECDT, tecla
+		clr	TECDT
+		clr	TECST
+		and	#hFFFD, INTS
+		rts	r7
+
+; ==============================================================
+
+rconferetecla:
+
+;	Se a tecla for S/s, incrementar segundos
+		cmp	tecla, #'s'		
+		beq	incseg
+		cmp	tecla, #'S'
+		beq	incseg
+
+;	Analogo para minutos
+		cmp	tecla, #'m'
+		beq	incmin
+		cmp	tecla, #'M'
+		beq	incmin
+
+;	Analogo para horas
+		cmp	tecla, #'h'
+		beq	inchr
+		cmp	tecla, #'H'
+		beq	inchr
+
+;	Se a tecla for Z/z, zerar o relogio
+		cmp	tecla, #'z'
+		beq	zerarel
+		cmp	tecla, #'Z'
+		beq	zerarel
+
+		clr	tecla
+		rts	r7
+
+; ====================================
+
+incseg:		inc	seg
+		clr	tecla
+		rts	r7
+
+incmin:		inc	min
+		clr	tecla
+		rts	r7
+
+inchr:		inc	horas
+		clr	tecla
+		rts	r7
+
+zerarel:	clr	horas
+		clr	min
+		clr	seg
+		clr	tecla
+		rts	r7
+
+; ==============================================================
+; ==============================================================
+
+; Inicializacao da funcao <string>:
+string:
+
+	clr	INTS
+	mov	#250, TIMDT
+	mov	#isrtec, IVET
+	mov	#h83, INTE
+	mov	#-1, tecla
+
+	jsr	r7, limpavis	; limpar o visor
+	jsr	r7, inireg	; zerar registradores
+
+	mov	#VISOR, r0	; registrador para rastrear visor
+	mov	#VISOR, r1	; registrador para rastrear cursor piscante
+
+	clr	flag
+	clr	flagf
+	
+; ==============================================================
+; String: main
+; Loop de insercao de tecla e do cursor piscante:
+
+loop_visor:
+
+		jsr	r7, tconferetecla
+		
+		cmp	tecla, #CTRLF
+		bne	pulaloop2
+		jmp	fimfuncao
+			
+		
+pulaloop2:	cmp	#VISOR+35, r0		;| se chegar no fim do visor, recuar para a posicao mais a esquerda
+		bne	seguetec		;|
+		jsr	r7, limpavis
+		mov	#VISOR, r0		;|
+		mov	r0, r1			;|
+	
+seguetec:	mov	#' ', (r1)
+		tst	flag			; se a <flag> for 0, deixar em branco, se for 1, colocar '_'
+		beq	loop_visor
+
+		mov	#'_', (r1)
+
+		br	loop_visor
+
+
+; ==============================================================
+; Rotina de tratamento de interruopcoes da string:
+
+;	- mover TECDT para <tecla>
+;	- inversao da <flag> do cursor piscante
+isrtec:
+		mov	r1, -(r6)
+		mov	r2, -(r6)
+		mov	r3, -(r6)
+		mov	r4, -(r6)
+
+ttestetim:
+		mov	INTS, r1
+		and	#1, r1
+		beq	ttestetec
+		jsr	r7, tectim	; se tiver interrupcao de tempo, tratar
+
+ttestetec:
+		mov	INTS, r1
+		and	#2, r1
+		beq	fimisrtec
+		jsr	r7, tectec	; se for interrupcao do teclado, tratar
+		jmp	fimisrtec
+
+
+; ==============================================================
+; Inversao da <flag> do cursor piscante:
+
+tectim:		
+		not	flag		
+
+; Ajusta o status do timer e retorna a funcao
+voltatec:
+		and	#hFFFE, INTS
+		rts	r7		
+
+; ==============================================================
+; Desempilha registradores e retorna rotina de tratamento
+
+fimisrtec:		
+		mov	(r6)+, r4
+		mov	(r6)+, r3
+		mov	(r6)+, r2
+		mov	(r6)+, r1
+
+		rti
+
+; ==============================================================
+; Insere TECDT em <tecla> e retorna a funcao
+
+tectec:
+		mov	TECDT, tecla
+		clr	TECDT
+		clr	TECST
+		and	#hFFFD, INTS
+		rts	r7
+
+; ==============================================================
+
+tconferetecla:
+		cmp	tecla, #LF		; se a tecla for LF, limpa o visor
+		beq	teclalf
+
+		cmp	tecla, #CR		; se a tecla for CR, posicionar o cursor na posicao mais a esquerda
+		beq	teclacr
+
+		cmp	tecla, #BS		; se a tecla for BS, limpar a posicao atual e recuar o cursor
+		beq	teclabs
+
+		cmp	tecla, #h20		; se houver uma tecla que nao as anteriores, a inserir
+		bgt	inseretec
+		
+		rts	r7			; se nao, retornar a funcao
+
+inseretec:
+		inc	r1
+		mov	tecla, (r0)
+		inc	r0
+		mov	#-1, tecla		
+
+		rts	r7
+
+; ====================================
+
+teclalf:	mov	r0, r3
+		jsr	r7, limpavis
+		mov	r3, r0
+		mov	#-1, tecla
+		rts	r7
+
+teclacr:	mov	#VISOR, r0
+		mov	#' ', (r1)
+		mov	r0, r1
+		mov	#-1, tecla
+		rts	r7
+
+teclabs:	dec	r0
+		mov	#' ', (r0)
+		mov	#' ', (r1)
+		dec	r1
+		mov	#-1, tecla
+		rts	r7
+
+
+; ==============================================================
+; Zerar todos os registradores
+
+inireg:
+		clr	r0
+		clr	r1
+		clr	r2
+		clr	r3
+		clr	r4
+		clr	r5
+
+		rts	r7
+
+
+; ==============================================================
+; Limpar o visor com espaco em branco
+
+limpavis:
+		mov	#VISOR, r0
+		mov	#36, r2
+
+; Loop para limpeza
+looplv:
+		mov	#' ', (r0)
+		inc	r0
+		sob	r2, looplv
+		mov	#VISOR, r0
+		clr	TECST
+		
+		rts	r7
+
+; ==============================================================
+
+fimfuncao:	
+		jsr	r7, limpavis
+		clr	INTE
+		rts	r7
